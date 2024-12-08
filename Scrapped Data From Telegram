@@ -1,0 +1,195 @@
+Data Scrapped from Telegram using Telethon 
+
+CODE:
+!pip install telethon
+
+from telethon import TelegramClient, sync
+import pandas as pd
+
+api_id = 'rtstgxxg'  # Replace with your API ID
+api_hash = 'shrtytzwhrus6eyusjus'  # Replace with your API Hash
+
+# Create and start the client
+client = TelegramClient('session_name', api_id, api_hash)
+await client.start()
+
+#to put rate limit
+from telethon.errors import FloodWaitError
+import asyncio
+import nest_asyncio
+from telethon import TelegramClient, errors
+
+
+# Apply nest_asyncio to allow nested event loops in environments like Jupyter/Colab
+nest_asyncio.apply()
+
+async def scrape_channel(channel_username, limit=100):
+    messages = []
+    try:
+        async for message in client.iter_messages(channel_username, limit=limit):
+            if message.text:  # Ensure message text is not None
+                messages.append(message.text)
+    except errors.FloodWaitError as e:
+        print(f"Rate limit hit, waiting for {e.seconds} seconds...")
+        await asyncio.sleep(e.seconds)  # Pause for the required duration
+        return await scrape_channel(channel_username, limit)  # Retry after waiting
+    return messages
+
+# Connect to the client and scrape the channel
+async def main(channel_username):
+    await client.start()
+    data = await scrape_channel(channel_username, limit=100)
+    await client.disconnect()
+    return data
+
+# Run the main function
+channel_username = 'LIQUIDEOFFICIAL'  # Replace with the channel's username
+data = asyncio.run(main(channel_username))
+
+# Print or process the data as needed
+print(data)
+
+import nest_asyncio
+import asyncio
+from telethon import TelegramClient, errors
+import re
+import pandas as pd
+from datetime import datetime
+
+# Apply nest_asyncio to allow nested event loops
+nest_asyncio.apply()
+
+# Define stock market indices to search for
+stock_indices = [
+    "Nifty", "Nifty50", "BankNifty", "FinNifty", "Sensex", "MidcapNifty"
+]
+
+# Regular expressions to identify support, resistance levels, and current trading value
+support_pattern = re.compile(r"(support|support at)[^\d]*(\d+\.?\d*)\s*and[^\d]*(\d+\.?\d*)", re.IGNORECASE)
+resistance_pattern = re.compile(r"(resistance|resistance at)[^\d]*(\d+\.?\d*)\s*and[^\d]*(\d+\.?\d*)", re.IGNORECASE)
+current_trading_pattern = re.compile(r"(\bNifty\b|\bBankNifty\b|\bFinNifty\b|\bSensex\b|\bMidcapNifty\b)[^\d]*(\d+\.?\d*)", re.IGNORECASE)
+
+# Regular expression to identify candlestick patterns
+pattern_candlestick = re.compile(r"\b(bearish|bullish|harami|doji|hammer|shooting star|engulfing|spinning top)\b", re.IGNORECASE)
+
+# Regular expressions to identify long buildup, short buildup, and F&O ban
+long_buildup_pattern = re.compile(r"(long buildup|long build-up|long positions)", re.IGNORECASE)
+short_buildup_pattern = re.compile(r"(short buildup|short build-up|short positions)", re.IGNORECASE)
+fo_ban_pattern = re.compile(r"(F&O ban|under F&O ban)", re.IGNORECASE)
+
+def find_stock_indices(message_text):
+    """Search for stock market indices in a message."""
+    indices_found = []
+    for index in stock_indices:
+        if re.search(r'\b' + re.escape(index) + r'\b', message_text, re.IGNORECASE):
+            indices_found.append(index)
+    return indices_found
+
+def extract_levels(message_text):
+    """Extract support and resistance levels from a message."""
+    support_1, support_2, resistance_1, resistance_2 = None, None, None, None
+
+    support_match = support_pattern.search(message_text)
+    resistance_match = resistance_pattern.search(message_text)
+
+    if support_match:
+        support_1 = float(support_match.group(2))  # Extracted Support 1 level
+        support_2 = float(support_match.group(3))  # Extracted Support 2 level
+    if resistance_match:
+        resistance_1 = float(resistance_match.group(2))  # Extracted Resistance 1 level
+        resistance_2 = float(resistance_match.group(3))  # Extracted Resistance 2 level
+
+    return support_1, support_2, resistance_1, resistance_2
+
+def extract_current_trading_value(message_text):
+    """Extract current trading value for a market index."""
+    current_value = None
+    match = current_trading_pattern.search(message_text)
+    if match:
+        current_value = float(match.group(2))  # Extracted current trading value
+    return current_value
+
+def extract_pattern(message_text):
+    """Extract candlestick pattern from the message."""
+    match = pattern_candlestick.search(message_text)
+    return match.group(1).capitalize() if match else None
+
+def extract_buildups(message_text):
+    """Extract long buildup, short buildup, and F&O ban status from a message."""
+    long_buildup = bool(long_buildup_pattern.search(message_text))
+    short_buildup = bool(short_buildup_pattern.search(message_text))
+    fo_ban = bool(fo_ban_pattern.search(message_text))
+    return long_buildup, short_buildup, fo_ban
+
+def extract_date(message):
+    """Extract date from the message metadata (if available)."""
+    return message.date.strftime('%Y-%m-%d %H:%M:%S')
+
+async def scrape_channel(channel_username, limit=100):
+    messages = []
+    try:
+        async for message in client.iter_messages(channel_username, limit=limit):
+            if message.text:  # Ensure message text is not None
+                indices_in_message = find_stock_indices(message.text)
+                if indices_in_message:  # If the message contains stock indices
+                    date = extract_date(message)
+                    support_1, support_2, resistance_1, resistance_2 = extract_levels(message.text)
+                    current_value = extract_current_trading_value(message.text)
+                    pattern = extract_pattern(message.text)
+                    long_buildup, short_buildup, fo_ban = extract_buildups(message.text)
+                    for index in indices_in_message:
+                        messages.append([date, index, support_1, support_2, resistance_1, resistance_2, current_value, pattern, long_buildup, short_buildup, fo_ban, message.text])  # Store all info
+    except errors.FloodWaitError as e:
+        print(f"Rate limit hit, waiting for {e.seconds} seconds...")
+        await asyncio.sleep(e.seconds)  # Pause for the required duration
+        return await scrape_channel(channel_username, limit)  # Retry after waiting
+    return messages
+
+# Connect to the client and scrape the channel
+async def main(channel_username):
+    await client.start()
+    data = await scrape_channel(channel_username, limit=100)
+    await client.disconnect()
+    return data
+
+# Run the main function
+channel_username = 'fhfgjhgjhj'  # Replace with the channel's username
+data = asyncio.run(main(channel_username))
+
+# Convert the scraped data into a DataFrame
+columns = ['Date', 'Stock Index', 'Support 1', 'Support 2', 'Resistance 1', 'Resistance 2',
+           'Current', 'Pattern', 'Long Buildup', 'Short Buildup', 'Under F&O Ban', 'Message']
+df = pd.DataFrame(data, columns=columns)
+
+# Remove the unwanted columns: Long Buildup, Short Buildup, Under F&O Ban, Message
+df = df.drop(columns=['Long Buildup', 'Short Buildup', 'Under F&O Ban', 'Message'])
+
+# Display the DataFrame
+print(df)
+
+# Optionally, save the filtered data to a CSV file
+#df.to_csv('stock_indices_with_support_resistance_current_pattern.csv', index=False)
+
+# Mount Google Drive
+from google.colab import drive
+drive.mount('/content/drive')
+
+# Save the filtered data to Google Drive as CSV
+csv_filename = '/content/drive/MyDrive/intern5_stock_data.csv'
+df.to_csv(csv_filename, index=False)
+
+print(f'File saved to Google Drive: {csv_filename}')
+
+df = pd.DataFrame(data, columns=['message'])
+
+import re
+
+# Remove unwanted characters and links
+df['message'] = df['message'].apply(lambda x: re.sub(r'http\S+|www\S+|https\S+|[^a-zA-Z0-9\s]', '', x))
+df = df.dropna().reset_index(drop=True)
+
+df = df.dropna()
+
+from google.colab import drive
+drive.mount('/content/drive')
+df.to_csv('/content/drive/MyDrive/intern2_stock_data.csv', index=False)
